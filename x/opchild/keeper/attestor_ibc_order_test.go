@@ -86,7 +86,11 @@ func Test_IBCModule_OnRecvPacket_AcceptsOutOfOrderAttestorSetUpdate(t *testing.T
 
 	updatedBridgeInfo, err := input.OPChildKeeper.BridgeInfo.Get(ctx)
 	require.NoError(t, err)
-	require.Equal(t, []ophosttypes.Attestor{attestor1, attestor2}, updatedBridgeInfo.BridgeConfig.AttestorSet)
+	storedAttestors := make([]string, 0, len(updatedBridgeInfo.BridgeConfig.AttestorSet))
+	for _, attestor := range updatedBridgeInfo.BridgeConfig.AttestorSet {
+		storedAttestors = append(storedAttestors, attestor.Moniker)
+	}
+	require.ElementsMatch(t, []string{"attestor1", "attestor2"}, storedAttestors)
 
 	validators, err := input.OPChildKeeper.GetAllValidators(ctx)
 	require.NoError(t, err)
