@@ -20,10 +20,10 @@ func Test_IBCModule_OnRecvPacket_AcceptsOutOfOrderAttestorSetUpdate(t *testing.T
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
 	const (
-		l1ClientID       = "test-client-id"
-		connectionID     = "connection-0"
-		sourceChannel    = "channel-0"
-		destinationChan  = "channel-1"
+		l1ClientID      = "test-client-id"
+		connectionID    = "connection-0"
+		sourceChannel   = "channel-0"
+		destinationChan = "channel-1"
 	)
 
 	bridgeInfo := opchildtypes.BridgeInfo{
@@ -38,7 +38,7 @@ func Test_IBCModule_OnRecvPacket_AcceptsOutOfOrderAttestorSetUpdate(t *testing.T
 	}
 	require.NoError(t, input.OPChildKeeper.BridgeInfo.Set(ctx, bridgeInfo))
 
-	// The OPChild channel is UNORDERED, so packets may be delivered out of sequence.
+	// OPChild channels are UNORDERED; deliver a newer update before an older one.
 	input.IBCKeeper.ConnectionKeeper.SetClientConnectionPaths(sdkCtx, l1ClientID, []string{connectionID})
 	input.IBCKeeper.ConnectionKeeper.SetConnection(sdkCtx, connectionID, connectiontypes.ConnectionEnd{
 		State:    connectiontypes.OPEN,
@@ -57,16 +57,8 @@ func Test_IBCModule_OnRecvPacket_AcceptsOutOfOrderAttestorSetUpdate(t *testing.T
 	attestor2 := testutil.CreateAttestor(t, testutil.ValAddrsStr[2], testutil.PubKeys[2], "attestor2")
 	attestor3 := testutil.CreateAttestor(t, testutil.ValAddrsStr[3], testutil.PubKeys[3], "attestor3")
 
-	newerPacketData := ophosttypes.NewAttestorSetUpdatePacketData(
-		1,
-		[]ophosttypes.Attestor{attestor1, attestor3},
-		200,
-	)
-	stalePacketData := ophosttypes.NewAttestorSetUpdatePacketData(
-		1,
-		[]ophosttypes.Attestor{attestor1, attestor2},
-		100,
-	)
+	newerPacketData := ophosttypes.NewAttestorSetUpdatePacketData(1, []ophosttypes.Attestor{attestor1, attestor3}, 200)
+	stalePacketData := ophosttypes.NewAttestorSetUpdatePacketData(1, []ophosttypes.Attestor{attestor1, attestor2}, 100)
 
 	newPacket := channeltypes.Packet{
 		SourcePort:         opchildtypes.PortID,
@@ -86,11 +78,9 @@ func Test_IBCModule_OnRecvPacket_AcceptsOutOfOrderAttestorSetUpdate(t *testing.T
 	}
 
 	ibcModule := opchild.NewIBCModule(input.OPChildKeeper)
-
 	newAck := ibcModule.OnRecvPacket(sdkCtx, opchildtypes.Version, newPacket, nil)
 	require.True(t, newAck.Success(), "newer attestor-set packet should be accepted")
 
-	// Deliver the lower-sequence / lower-L1-height packet after the newer packet.
 	staleAck := ibcModule.OnRecvPacket(sdkCtx, opchildtypes.Version, stalePacket, nil)
 	require.True(t, staleAck.Success(), "current handler accepts the stale packet")
 
@@ -100,7 +90,6 @@ func Test_IBCModule_OnRecvPacket_AcceptsOutOfOrderAttestorSetUpdate(t *testing.T
 
 	validators, err := input.OPChildKeeper.GetAllValidators(ctx)
 	require.NoError(t, err)
-
 	activeAttestors := make([]string, 0, len(validators))
 	for _, validator := range validators {
 		if validator.ConsPower == int64(opchildtypes.AttestorConsPower) {
