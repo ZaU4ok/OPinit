@@ -511,3 +511,47 @@ func Test_OnRecvAttestorSetUpdatePacket_InvalidPacketData(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to unmarshal attestor set update packet")
 }
+
+
+func Test_HandleAttestorSetUpdatePacket_RejectsStaleL1BlockHeight(t *testing.T) {
+	ctx, input := testutil.CreateTestInput(t, false)
+
+	bridgeInfo := opchildtypes.BridgeInfo{
+		BridgeId:   1,
+		BridgeAddr: testutil.AddrsStr[0],
+		L1ChainId:  "test-chain-1",
+		L1ClientId: "test-client-id",
+		BridgeConfig: ophosttypes.BridgeConfig{
+			AttestorSet: []ophosttypes.Attestor{},
+		},
+	}
+	err := input.OPChildKeeper.BridgeInfo.Set(ctx, bridgeInfo)
+	require.NoError(t, err)
+
+	valPubKeys := testutilsims.CreateTestPubKeys(3)
+	attestor1 := testutil.CreateAttestor(t, testutil.ValAddrsStr[1], valPubKeys[0], "attestor1")
+	attestor2 := testutil.CreateAttestor(t, testutil.ValAddrsStr[2], valPubKeys[1], "attestor2")
+	attestor3 := testutil.CreateAttestor(t, testutil.ValAddrsStr[3], valPubKeys[2], "attestor3")
+
+	newerPacket := ophosttypes.AttestorSetUpdatePacketData{
+		BridgeId:      1,
+		AttestorSet:   []ophosttypes.Attestor{attestor1, attestor3},
+		L1BlockHeight: 200,
+	}
+	ack, err := input.OPChildKeeper.HandleAttestorSetUpdatePacket(ctx, newerPacket)
+	require.NoError(t, err)
+	require.True(t, ack.Success)
+
+	stalePacket := ophosttypes.AttestorSetUpdatePacketData{
+		BridgeId:      1,
+		AttestorSet:   []ophosttypes.Attestor{attestor1, attestor2},
+		L1BlockHeight: 100,
+	}
+	ack, err = input.OPChildKeeper.HandleAttestorSetUpdatePacket(ctx, stalePacket)
+	require.NoError(t, err)
+	require.False(t, ack.Success, "stale L1 attestor-set update must be rejected")
+
+	updatedBridgeInfo, err := input.OPChildKeeper.BridgeInfo.Get(ctx)
+	require.NoError(t, err)
+	require.Equal(t, newerPacket.AttestorSet, updatedBridgeInfo.BridgeConfig.AttestorSet)
+}
